@@ -16,50 +16,62 @@ const LINE_USER_ID = 'U9255911836e2c67c5ae3a52816a92e64';
 async function getSalesData() {
     try {
         const response = await axios.get(CSV_URL);
-        
-        // ให้อ่านทุกบรรทัดตรงตาม Sheet จริง
-        const records = parse(response.data, { skip_empty_lines: false });
+        const records = parse(response.data, { 
+            skip_empty_lines: false,
+            relax_quotes: true 
+        });
 
-        let emp1Name = "ไม่ระบุชื่อ";
-        let emp2Name = "ไม่ระบุชื่อ";
-        let emp3Name = "ไม่ระบุชื่อ";
-        let targetRowIndex = -1;
-        
-        // หาวันที่ปัจจุบัน
+        // แถวที่ 41 ใน Google Sheets จะตรงกับ index 40 ในระบบโค้ด
+        const nameRow = records[40];
+        if (!nameRow) {
+            return { error: "ไม่พบข้อมูลในแถวที่ 41 ของตาราง" };
+        }
+
+        // ดึงชื่อพนักงานตามพิกัดเป๊ะๆ (A=0, B=1, C=2, D=3...)
+        const emp1Name = nameRow[3] || "พนักงาน #1";  // คอลัมน์ D41
+        const emp2Name = nameRow[11] || "พนักงาน #2"; // คอลัมน์ L41
+        const emp3Name = nameRow[18] || "พนักงาน #3"; // คอลัมน์ S41
+
+        // หาวันที่ปัจจุบันจากระบบ (รูปแบบ DD/MM/YYYY เช่น 03/07/2026)
         const todayStr = moment().tz("Asia/Bangkok").format("DD/MM/YYYY");
+        let targetRowIndex = -1;
 
-        // ค้นหาแถวแบบอัตโนมัติ (แก้ปัญหาเรื่องการซ่อนแถว/ลบแถว)
-        for (let i = 0; i < records.length; i++) {
-            if (!records[i]) continue;
+        // วนลูปค้นหาแถวของวันนี้ในคอลัมน์ C (index 2) เริ่มตั้งแต่วันที่ 1 แถวที่ 46 (index 45) จนถึงแถว 77
+        for (let i = 45; i < records.length; i++) {
+            if (!records[i] || !records[i][2]) continue;
             
-            // หาชื่อพนักงานจากบรรทัดที่มีคำว่า "พนักงาน #1" 
-            if (records[i][1] === "พนักงาน #1") {
-                emp1Name = records[i][3] || emp1Name;  // คอลัมน์ D
-                emp2Name = records[i][11] || emp2Name; // คอลัมน์ L
-                emp3Name = records[i][19] || emp3Name; // คอลัมน์ T
-            }
+            const sheetDateStr = records[i][2].trim();
             
-            // หาวันที่ในคอลัมน์ C 
-            if (records[i][2] === todayStr) {
-                targetRowIndex = i;
+            // ระบบแปลงข้อมูลเพื่อเปรียบเทียบตัวเลขวันที่ให้แม่นยำ (ป้องกันปัญหาฟอร์แมต 03/07 กับ 3/7 ไม่ตรงกัน)
+            const pSheet = sheetDateStr.split('/');
+            const pTarget = todayStr.split('/');
+            
+            if (pSheet.length === 3 && pTarget.length === 3) {
+                if (parseInt(pSheet[0], 10) === parseInt(pTarget[0], 10) &&
+                    parseInt(pSheet[1], 10) === parseInt(pTarget[1], 10) &&
+                    parseInt(pSheet[2], 10) === parseInt(pTarget[2], 10)) {
+                    targetRowIndex = i;
+                    break;
+                }
             }
         }
 
         if (targetRowIndex === -1) {
-            return { error: `ไม่พบข้อมูลของวันที่ ${todayStr} ในคอลัมน์ C ของตาราง` };
+            return { error: `ไม่พบแถวข้อมูลของวันที่ ${todayStr} ในคอลัมน์ C ของตาราง` };
         }
+
+        const targetRow = records[targetRowIndex];
 
         return {
             date: todayStr,
             employees: [
-                { name: emp1Name, sales: records[targetRowIndex][4] },
-                { name: emp2Name, sales: records[targetRowIndex][12] },
-                { name: emp3Name, sales: records[targetRowIndex][20] }
+                { name: emp1Name, sales: targetRow[4] },  // คอลัมน์ E (ยอดขายคนที่ 1)
+                { name: emp2Name, sales: targetRow[12] }, // คอลัมน์ M (ยอดขายคนที่ 2)
+                { name: emp3Name, sales: targetRow[19] }  // คอลัมน์ T (ยอดขายคนที่ 3 จากช่วง T-Y)
             ]
         };
     } catch (error) {
         console.error("Error details:", error.message);
-        // แสดง Error ของจริงออกมาที่หน้าเว็บ จะได้รู้ว่าพังที่จุดไหน
         return { error: `ระบบติดปัญหา: ${error.message}` };
     }
 }
@@ -74,7 +86,7 @@ async function sendLineMessage(msg) {
     await axios.post(url, payload, { headers });
 }
 
-// 🌐 หน้าเว็บ Dashboard
+// 🌐 หน้าเว็บ Dashboard สำหรับเข้าดูสถานะสดๆ
 app.get('/', async (req, res) => {
     const data = await getSalesData();
     if (data.error) return res.send(`<h2>⚠️ ${data.error}</h2>`);
@@ -106,7 +118,7 @@ app.get('/', async (req, res) => {
     `;
 
     data.employees.forEach(emp => {
-        const isMissing = !emp.sales || String(emp.sales).trim() === "";
+        const isMissing = !emp.sales || String(emp.sales).trim() === "" || String(emp.sales).trim() === "0";
         const salesDisplay = isMissing ? "-" : Number(emp.sales).toLocaleString();
         const statusHtml = isMissing ? '<span class="status-missing">❌ ยังไม่ส่งยอด</span>' : '<span class="status-ok">✅ ส่งแล้ว</span>';
         html += `<tr><td>${emp.name}</td><td>${salesDisplay}</td><td>${statusHtml}</td></tr>`;
@@ -116,14 +128,14 @@ app.get('/', async (req, res) => {
     res.send(html);
 });
 
-// 🤖 สำหรับ Cron-job
+// 🤖 สำหรับระบบสะกิดส่ง LINE OA ตอน 21:30 น.
 app.get('/trigger-check', async (req, res) => {
     const data = await getSalesData();
     if (data.error) return res.status(500).send("Error: " + data.error);
 
     let missingList = [];
     data.employees.forEach(emp => {
-        if (!emp.sales || String(emp.sales).trim() === "") {
+        if (!emp.sales || String(emp.sales).trim() === "" || String(emp.sales).trim() === "0") {
             missingList.push(emp.name);
         }
     });
