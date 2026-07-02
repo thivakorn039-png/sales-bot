@@ -7,37 +7,46 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ==========================================
-// ⚙️ ตั้งค่าระบบ (ต้องเปลี่ยน Token และ User ID)
+// ⚙️ ตั้งค่าระบบ
 // ==========================================
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR18zg7epMhMALeGsrs2-galXbB_jcHZEDoPQaY9OIaNmzVJC1kZ1bsHQczMtA5cnxzclky79bkTeRv/pub?gid=1637010532&single=true&output=csv';
 const LINE_ACCESS_TOKEN = '2ufFjG7lbXeF+z375jKBUwv9tyK9p09emb+o/+5f+uQnvU9UISBzoDMjflywDumlb2N7rpabtGCW7Jw9wi7LeMwlR7S4L0V5L8+xxqM6ho3KTmgjZktUFL3TVkpb2iuZYIgEL3Nh9pWO5pHXKzdXUQdB04t89/1O/w1cDnyilFU=';
 const LINE_USER_ID = 'U9255911836e2c67c5ae3a52816a92e64';
 
-// ฟังก์ชันดึงข้อมูลจาก Sheet
 async function getSalesData() {
     try {
         const response = await axios.get(CSV_URL);
-        const records = parse(response.data, { skip_empty_lines: true });
+        
+        // ให้อ่านทุกบรรทัดตรงตาม Sheet จริง
+        const records = parse(response.data, { skip_empty_lines: false });
 
-        // ดึงชื่อพนักงาน
-        const emp1Name = records[40][3];  // คอลัมน์ D
-        const emp2Name = records[40][11]; // คอลัมน์ L
-        const emp3Name = records[40][19]; // คอลัมน์ T
-
-        // วันที่ปัจจุบัน (เช่น 02/07/2026)
-        const todayStr = moment().tz("Asia/Bangkok").format("DD/MM/YYYY");
+        let emp1Name = "ไม่ระบุชื่อ";
+        let emp2Name = "ไม่ระบุชื่อ";
+        let emp3Name = "ไม่ระบุชื่อ";
         let targetRowIndex = -1;
+        
+        // หาวันที่ปัจจุบัน
+        const todayStr = moment().tz("Asia/Bangkok").format("DD/MM/YYYY");
 
-        // ค้นหาแถวของวันนี้
-        for (let i = 45; i < records.length; i++) {
-            if (records[i] && records[i][2] === todayStr) {
+        // ค้นหาแถวแบบอัตโนมัติ (แก้ปัญหาเรื่องการซ่อนแถว/ลบแถว)
+        for (let i = 0; i < records.length; i++) {
+            if (!records[i]) continue;
+            
+            // หาชื่อพนักงานจากบรรทัดที่มีคำว่า "พนักงาน #1" 
+            if (records[i][1] === "พนักงาน #1") {
+                emp1Name = records[i][3] || emp1Name;  // คอลัมน์ D
+                emp2Name = records[i][11] || emp2Name; // คอลัมน์ L
+                emp3Name = records[i][19] || emp3Name; // คอลัมน์ T
+            }
+            
+            // หาวันที่ในคอลัมน์ C 
+            if (records[i][2] === todayStr) {
                 targetRowIndex = i;
-                break;
             }
         }
 
         if (targetRowIndex === -1) {
-            return { error: `ไม่พบข้อมูลของวันที่ ${todayStr} ในตาราง` };
+            return { error: `ไม่พบข้อมูลของวันที่ ${todayStr} ในคอลัมน์ C ของตาราง` };
         }
 
         return {
@@ -49,18 +58,15 @@ async function getSalesData() {
             ]
         };
     } catch (error) {
-        console.error("ดึงข้อมูลล้มเหลว:", error.message);
-        return { error: "เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets" };
+        console.error("Error details:", error.message);
+        // แสดง Error ของจริงออกมาที่หน้าเว็บ จะได้รู้ว่าพังที่จุดไหน
+        return { error: `ระบบติดปัญหา: ${error.message}` };
     }
 }
 
-// ฟังก์ชันส่งข้อความ LINE
 async function sendLineMessage(msg) {
     const url = "https://api.line.me/v2/bot/message/push";
-    const payload = {
-        to: LINE_USER_ID,
-        messages: [{ type: "text", text: msg }]
-    };
+    const payload = { to: LINE_USER_ID, messages: [{ type: "text", text: msg }] };
     const headers = {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${LINE_ACCESS_TOKEN}`
@@ -68,9 +74,7 @@ async function sendLineMessage(msg) {
     await axios.post(url, payload, { headers });
 }
 
-// ==========================================
-// 🌐 1. หน้าเว็บ Dashboard สำหรับเข้ามาดูสถานะสดๆ
-// ==========================================
+// 🌐 หน้าเว็บ Dashboard
 app.get('/', async (req, res) => {
     const data = await getSalesData();
     if (data.error) return res.send(`<h2>⚠️ ${data.error}</h2>`);
@@ -112,9 +116,7 @@ app.get('/', async (req, res) => {
     res.send(html);
 });
 
-// ==========================================
-// 🤖 2. API สำหรับให้ระบบสะกิดตอน 21:30 น.
-// ==========================================
+// 🤖 สำหรับ Cron-job
 app.get('/trigger-check', async (req, res) => {
     const data = await getSalesData();
     if (data.error) return res.status(500).send("Error: " + data.error);
