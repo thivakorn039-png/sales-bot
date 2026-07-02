@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 // ==========================================
 // ⚙️ ตั้งค่าระบบ
 // ==========================================
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRAbfdL4cir-rRD6cSoGVjPEaNEsfxiBiWRUHU176BjEF6e7TnRPMPkhbn0FyLX6eZ5JAEgyVIlVBIl/pubhtml';
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRAbfdL4cir-rRD6cSoGVjPEaNEsfxiBiWRUHU176BjEF6e7TnRPMPkhbn0FyLX6eZ5JAEgyVIlVBIl/pub?output=csv';
 const LINE_ACCESS_TOKEN = '2ufFjG7lbXeF+z375jKBUwv9tyK9p09emb+o/+5f+uQnvU9UISBzoDMjflywDumlb2N7rpabtGCW7Jw9wi7LeMwlR7S4L0V5L8+xxqM6ho3KTmgjZktUFL3TVkpb2iuZYIgEL3Nh9pWO5pHXKzdXUQdB04t89/1O/w1cDnyilFU=';
 const LINE_USER_ID = 'U9255911836e2c67c5ae3a52816a92e64';
 
